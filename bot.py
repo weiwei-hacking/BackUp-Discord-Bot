@@ -2,49 +2,63 @@ import os
 import json
 import discord
 import psutil
+from discord.ext import tasks
 from discord import app_commands
-from discord.ext import commands
 
-bot = commands.Bot(command_prefix="!", help_command=None, intents = discord.Intents.all(), all_permissions = [name for name, _ in discord.Permissions.VALID_FLAGS.items()])
+intents = discord.Intents.all()
 
-@bot.event
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
+@client.event
 async def on_ready():
-    slash = await bot.tree.sync()
-    print(f"目前登入身份 --> {bot.user}")
-    print(f"載入 {len(slash)} 個斜線指令")        
+    await tree.sync()
+    print(f"目前登入身份 --> {client.user.name}")
+    await load_all_members()
+    await update_status.start()
+
+@tasks.loop(seconds=15)
+async def update_status():
+    total_members = 0
+    for guild in client.guilds:
+        total_members += guild.member_count
+
+    status = f"{len(client.guilds)} 個伺服器  |  總人數 {total_members}"
+    await client.change_presence(activity=discord.Game(name=status))
+
+async def load_all_members():
+    for guild in client.guilds:
+        async for member in guild.fetch_members(limit=None):
+            pass
 
 class Basic(app_commands.Group):
     ...
 basic = Basic(name="基礎版", description="基礎版功能")
-bot.tree.add_command(basic)
+tree.add_command(basic)
 
-@bot.command(name="help")
-async def help(ctx):
-    await ctx.send("請使用斜線指令 `/幫助` 來獲取機器人使用說明")
-
-@bot.tree.command(name="狀態", description="查詢機器人狀態")
+@tree.command(name="狀態", description="查詢機器人狀態")
 async def status(ctx):
-    latency = bot.latency * 1000  # 將延遲轉換為毫秒
+    latency = client.latency * 1000  # 將延遲轉換為毫秒
     cpu_percent = psutil.cpu_percent()
-    owner_id = (await bot.application_info()).owner.id
+    owner_id = (await client.application_info()).owner.id
     total_members = 0
-    for guild in bot.guilds:
+    for guild in client.guilds:
         total_members += guild.member_count
     embed = discord.Embed(title="機器人狀態", color=0x00ff00)
     embed.add_field(name="延遲", value=f"{latency:.2f} ms", inline=True)
     embed.add_field(name="CPU 使用率", value=f"{cpu_percent:.2f}%", inline=True)
     embed.add_field(name="RAM 使用率", value=f"{psutil.virtual_memory().percent}%", inline=True)
-    embed.add_field(name="伺服器總數", value=f"**{len(bot.guilds)}** 個伺服器", inline=True)
+    embed.add_field(name="伺服器總數", value=f"**{len(client.guilds)}** 個伺服器", inline=True)
     embed.add_field(name="伺服器人數", value=f"**{total_members}** 個人", inline=True)
     embed.add_field(name="機器人擁有者", value=f"<@{owner_id}> ({owner_id})", inline=True)
     await ctx.response.send_message(embed=embed)
 
-@bot.tree.command(name="邀請", description="把我邀請製你的伺服器")
+@tree.command(name="邀請", description="把我邀請製你的伺服器")
 async def invite(ctx):
     embed = discord.Embed(title="連結列表", description="[點我把我邀進你的伺服器](https://discord.com/oauth2/authorize?client_id=1246709247945867284)\n[我們的官方伺服器](https://discord.gg/daFQhVFGKj)", color=0x3498DB)
     await ctx.response.send_message(embed=embed)
 
-@bot.tree.command(name="幫助", description="顯示該機器人的幫助介面")
+@tree.command(name="幫助", description="顯示該機器人的幫助介面")
 async def help_command(ctx):
     embed = discord.Embed(title="備份機器人幫助介面", description="需要幫助嗎? 加入我們的 [Discord](https://discord.gg/daFQhVFGKj) 並開啟一個票單來與客服人員對談。", color=0x00bbff)
     embed.add_field(name="通用功能", value="""</幫助:1251343415082352673> 顯示這個機器人的指令列表
@@ -256,4 +270,4 @@ class NotifyView(discord.ui.View):
 
 
 
-bot.run("機器人Token貼這裡")
+client.run("機器人Token貼這裡")
