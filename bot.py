@@ -9,6 +9,7 @@ intents = discord.Intents.all()
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+all_permissions = [name for name, _ in discord.Permissions.VALID_FLAGS.items()]
 
 @client.event
 async def on_ready():
