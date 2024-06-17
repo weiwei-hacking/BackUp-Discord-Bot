@@ -1,9 +1,10 @@
-import os
-import json
-import discord
 import psutil
+import discord
+import os
+import time
+import json
+from discord import app_commands, Interaction, Embed
 from discord.ext import tasks
-from discord import app_commands
 
 intents = discord.Intents.all()
 
@@ -32,11 +33,6 @@ async def load_all_members():
         async for member in guild.fetch_members(limit=None):
             pass
 
-class Basic(app_commands.Group):
-    ...
-basic = Basic(name="基礎版", description="基礎版功能")
-tree.add_command(basic)
-
 @tree.command(name="狀態", description="查詢機器人狀態")
 async def status(ctx):
     latency = client.latency * 1000  # 將延遲轉換為毫秒
@@ -56,217 +52,126 @@ async def status(ctx):
 
 @tree.command(name="邀請", description="把我邀請製你的伺服器")
 async def invite(ctx):
-    embed = discord.Embed(title="連結列表", description="[點我把我邀進你的伺服器](https://discord.com/oauth2/authorize?client_id=1246709247945867284)\n[我們的官方伺服器](https://discord.gg/daFQhVFGKj)", color=0x3498DB)
+    embed = discord.Embed(title="連結列表", description="[點我把我邀進你的伺服器](https://discord.com/oauth2/authorize?client_id=1246709247945867284)\n[我們的官方伺服器](https://discord.gg/daFQhVFGKj)", color=0x5a5fcf)
     await ctx.response.send_message(embed=embed)
 
 @tree.command(name="幫助", description="顯示該機器人的幫助介面")
 async def help_command(ctx):
-    embed = discord.Embed(title="備份機器人幫助介面", description="需要幫助嗎? 加入我們的 [Discord](https://discord.gg/daFQhVFGKj) 並開啟一個票單來與客服人員對談。", color=0x00bbff)
-    embed.add_field(name="通用功能", value="""</幫助:1251343415082352673> 顯示這個機器人的指令列表
-                                                        </狀態:1251343415082352671> 查詢目前機器人的延遲、CPU和RAM使用率、擁有者ID等
-                                                        </邀請:1251343415082352672> 取得這個機器人的邀請連結
-                                                        """, inline=False)
-    embed.add_field(name="主要功能", value="""</基礎版 備份:1251343415082352670> 備份伺服器的分類、頻道、身分組
-                                                         </基礎版 還原:1251343415082352670> 還原伺服器的分類、頻道、身分組 (讀取備份過的數據)
-                                                        """, inline=False)
+    embed = discord.Embed(title="備份機器人幫助介面", description="需要幫助嗎? 加入我們的 [Discord](https://discord.gg/daFQhVFGKj) 並開啟一個票單來與客服人員對談。", color=0x5a5fcf)
+    embed.add_field(name="", value="", inline=False)
     await ctx.response.send_message(embed=embed)
 
 
-@basic.command(name="備份", description="備份伺服器的頻道和身分組資訊")
-async def basic_backup(interaction: discord.Interaction):
-    if interaction.user.id != interaction.guild.owner_id:
-        embed = discord.Embed(description="> 您需要成為 `伺服器擁有者` 才能執行該指令", color=0xFF0000)
-        embed.set_author(name="缺少權限")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
 
-    guild = interaction.guild
-    guild_id = str(guild.id)
-    backup_path = f"Servers/{guild_id}"
 
-    if os.path.exists(backup_path):
-        view = ConfirmView()
-        embed = discord.Embed(description="> 該伺服器已存在一份備份檔，您是否要覆蓋並建立新的備份檔?", color=0xFF0000)
-        embed.set_author(name="備份檔已存在")
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-        await view.wait()
-        if not view.value:
-            await interaction.edit_original_response(content="操作已取消。")
-            return
-        await interaction.edit_original_response(content="正在進行備份...")
-    else:
-        os.makedirs(backup_path)
-        await interaction.response.send_message("正在進行備份...")
 
-    # 備份頻道和分類
-    categories = []
-    for category in guild.categories:
-        cat_data = {
-            "name": category.name,
-            "position": category.position,
-            "channels": []
-        }
-        for channel in category.channels:
-            if not isinstance(channel, (discord.ForumChannel, discord.TextChannel)) or not channel.is_news():
-                cat_data["channels"].append({
-                    "name": channel.name,
-                    "position": channel.position,
-                    "type": str(channel.type)
-                })
-        categories.append(cat_data)
 
-    with open(f"{backup_path}/categories.json", "w", encoding="utf-8") as f:
-        json.dump(categories, f, ensure_ascii=False, indent=4)
 
-    # 備份身分組
+
+async def create_archive(server):
+    current_time = int(time.time())
+    folder_name = f"save/{server.id}_{current_time}"
+    os.makedirs(folder_name, exist_ok=True)
+
+    # 建立 settings.json
+    settings = {
+        "server_name": server.name,
+        "inactive_channels": [],
+        "system_messages": True,
+        "default_notifications": "@everyone"
+    }
+    with open(f"{folder_name}/settings.json", "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=4)
+
+    # 建立 roles.json
     roles = []
-    for role in guild.roles:
-        if not role.managed and role.name != "@everyone":
-            roles.append({
-                "name": role.name,
-                "color": role.color.value,
-                "position": role.position
-            })
-
-    with open(f"{backup_path}/roles.json", "w", encoding="utf-8") as f:
+    for role in server.roles:
+        # 跳過機器人自己生成的身分組
+        if role.is_bot_managed():
+            continue
+        role_data = {
+            "name": role.name,
+            "color": role.color.value,
+            "permissions": role.permissions.value
+        }
+        roles.append(role_data)
+    with open(f"{folder_name}/roles.json", "w", encoding="utf-8") as f:
         json.dump(roles, f, ensure_ascii=False, indent=4)
 
-    await interaction.edit_original_response(content="伺服器備份完成！")
+    # 建立 channels.json
+    channels = []
+    categories = []
+    for channel in server.channels:
+        if isinstance(channel, discord.CategoryChannel):
+            category_data = {
+                "name": channel.name,
+                "channels": []
+            }
+            categories.append(category_data)
+        elif not isinstance(channel, discord.StageChannel) and not isinstance(channel, discord.ForumChannel):
+            if not categories:
+                categories.append({"name": "Uncategorized", "channels": []})
+            channel_data = {
+                "name": channel.name,
+                "type": channel.type.name
+            }
+            categories[-1]["channels"].append(channel_data)
+    channels.extend(categories)
+    with open(f"{folder_name}/channels.json", "w", encoding="utf-8") as f:
+        json.dump(channels, f, ensure_ascii=False, indent=4)
 
-    embed = discord.Embed(title="✅伺服器已備份完成 | 基礎版", color=0x00ff00)
-    embed.add_field(name="頻道和分類 | ✅ 1/3", value="""> ✅ | 分類、頻道名稱
-                                                          > ❌ | 分類、頻道權限
-                                                          > ❌ | 分類、頻道概要""")
-    embed.add_field(name="身分組 | ✅ 2/3", value="""> ✅ | 身分組名稱
-                                                     > ✅ | 身分組顏色
-                                                     > ❌ | 身分組權限""")
-    embed.add_field(name="伺服器設定 | ✅ 0/2", value="""> ❌ | 伺服器名稱
-                                                          > ❌ | 社群概要""")
+    # 儲存 server icon
+    if server.icon:
+        icon_bytes = await server.icon.read()
+        with open(f"{folder_name}/icon.png", "wb") as f:
+            f.write(icon_bytes)
 
-    # 如果之前已經回應過互動（例如，在確認覆蓋時），使用 followup.send
-    if interaction.response.is_done():
-        await interaction.followup.send(embed=embed)
-    else:
-        # 如果還沒有回應過互動，直接使用 response.send_message
-        await interaction.response.send_message(embed=embed)
+    return folder_name
 
-class ConfirmView(discord.ui.View):
-    def __init__(self):
-        super().__init__()
-        self.value = None
+# 定義 /create 指令
+@tree.command(name="創建", description="創建一個伺服器的備份檔")
+@app_commands.checks.has_permissions(administrator=True)
+async def create(interaction: Interaction):
+    server = interaction.guild
 
-    @discord.ui.button(label="是", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.value = True
-        await interaction.response.defer()
-        self.stop()
+    # 回覆使用者,告知存檔建立中
+    embed = Embed(title="伺服器存檔建立中", description=f"伺服器的存檔正在建立中...\n機器人將會私訊進度給: {interaction.user.mention}", color=0x5a5fcf)
+    await interaction.response.send_message(embed=embed)
 
-    @discord.ui.button(label="否", style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.value = False
-        await interaction.response.defer()
-        self.stop()
+
+    embed = Embed(title="伺服器存檔創建中...", color=0x5a5fcf)
+    embed.add_field(name=f"""
+> 伺服器名稱: {server.name}
+> 伺服器ID: {server.id}
+> 開始建立時間: <t:{int(time.time())}>""", value="", inline=False)
+    await interaction.user.send(embed=embed)
 
 
 
+    # 私訊使用者存檔進度
+    progress_embed = Embed(title="", description="[⌛] 存檔中 | [✅] 已存檔", color=0x5a5fcf)
+    progress_message = await interaction.user.send(embed=progress_embed)
 
+    # 真實存檔進度
+    step_names = ["伺服器設定檔", "伺服器身分組", "分類及頻道", "伺服器圖標"]
+    for i, step in enumerate(step_names):
+        await progress_message.edit(embed=progress_embed.add_field(name=step, value="⌛", inline=False))
+        # 執行對應的存檔操作
+    folder_name = await create_archive(server)
+    for i, step in enumerate(step_names):
+        progress_embed.set_field_at(i, name=step, value="✅", inline=False)
+        await progress_message.edit(embed=progress_embed)
 
-@basic.command(name="還原", description="從備份檔案還原伺服器設置")
-async def restore_backup(interaction: discord.Interaction):
-    if interaction.user.id != interaction.guild.owner_id:
-        embed = discord.Embed(description="> 您需要成為 `伺服器擁有者` 才能執行該指令", color=0xFF0000)
-        embed.set_author(name="缺少權限")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    # 私訊使用者存檔完成訊息
+    embed = Embed(title="", description=f":white_check_mark: | :regional_indicator_b: :regional_indicator_a: :regional_indicator_c: :regional_indicator_k: :regional_indicator_u: :regional_indicator_p: :regional_indicator_c: :regional_indicator_r: :regional_indicator_e: :regional_indicator_a: :regional_indicator_t: :regional_indicator_e: :regional_indicator_d:" ,color=0x5a5fcf)
+    embed.add_field(name=f"""
+» **{server.name} (ID: {server.id})** 伺服器存檔已建立完成!
 
-    guild = interaction.guild
-    guild_id = str(guild.id)
-    backup_path = f"Servers/{guild_id}"
+» 如果你要還原伺服器的存檔請使用 `/讀取`
+» 請不要洩漏伺服器還原ID碼，因為這包含了伺服器的內容
 
-    if not os.path.exists(backup_path):
-        await interaction.response.send_message("沒有找到備份檔案,無法執行還原操作。", ephemeral=True)
-        return
-
-    view = ConfirmView()
-    await interaction.response.send_message("是否要執行還原操作?\n該操作並不會刪除現有頻道分類身分組等", view=view, ephemeral=True)
-    await view.wait()
-
-    if not view.value:
-        await interaction.edit_original_response(content="操作已取消。", view=None)
-        return
-
-    notify_view = NotifyView()
-    await interaction.edit_original_response(content="是否需要通知您還原進度?", view=notify_view)
-    await notify_view.wait()
-
-    if notify_view.value:
-        await interaction.user.send("正在執行還原操作...")
-
-    await interaction.edit_original_response(content="正在執行還原操作...", view=None)
-
-    # 還原頻道和分類
-    with open(f"{backup_path}/categories.json", "r", encoding="utf-8") as f:
-        categories = json.load(f)
-
-    for category_data in categories:
-        category = await guild.create_category(name=category_data["name"], position=category_data["position"])
-        for channel_data in category_data["channels"]:
-            channel_type = getattr(discord.ChannelType, channel_data["type"])
-            if channel_type == discord.ChannelType.text:
-                await category.create_text_channel(name=channel_data["name"], position=channel_data["position"])
-            elif channel_type == discord.ChannelType.voice:
-                await category.create_voice_channel(name=channel_data["name"], position=channel_data["position"])
-            if notify_view.value:
-                await interaction.user.send(f"已創建頻道: {channel_data['name']}")
-
-    # 還原身分組
-    with open(f"{backup_path}/roles.json", "r", encoding="utf-8") as f:
-        roles = json.load(f)
-
-    existing_roles = [role.name for role in guild.roles]
-    for role_data in roles:
-        if role_data["name"] not in existing_roles:
-            await guild.create_role(name=role_data["name"], color=discord.Color(role_data["color"]))
-            if notify_view.value:
-                await interaction.user.send(f"已創建身分組: {role_data['name']}")
-
-    await interaction.edit_original_response(content="伺服器還原完成!")
-
-    if notify_view.value:
-        await interaction.user.send("伺服器還原操作已完成!")
-
-class ConfirmView(discord.ui.View):
-    def __init__(self):
-        super().__init__()
-        self.value = None
-
-    @discord.ui.button(label="是", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.value = True
-        await interaction.response.defer()
-        self.stop()
-
-    @discord.ui.button(label="否", style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.value = False
-        await interaction.response.defer()
-        self.stop()
-
-class NotifyView(discord.ui.View):
-    def __init__(self):
-        super().__init__()
-        self.value = False
-
-    @discord.ui.button(label="是", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.value = True
-        await interaction.response.defer()
-        self.stop()
-
-    @discord.ui.button(label="否", style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.stop()
+» 還原ID: ||{folder_name.split('/')[-1]}||""", value="", inline=False)
+    await interaction.user.send(embed=embed)
 
 
 
